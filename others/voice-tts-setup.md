@@ -2,7 +2,9 @@
 
 Makes Claude Code speak its replies out loud using [Piper](https://github.com/rhasspy/piper) (offline neural TTS). Off by default every session; toggle with `/tts` or by asking in chat.
 
-Tested on Fedora Linux, Python 3.11. Requires: `python3`, `pip3`, `jq`, `perl`, `sed`, and an audio player (`aplay`, from `alsa-utils`).
+Tested on Fedora Linux, Python 3.11. Requires: `python3`, `pip3`, `jq`, `perl`, `sed`, and `pw-play` (ships with PipeWire, part of `pipewire-utils`/`pipewire`).
+
+**Use `pw-play`, not `aplay`, for playback.** `aplay` talks directly to a raw ALSA hardware device (typically the lowest-numbered card, e.g. a USB headset), which may not be the system's actual active output — on a PipeWire-based desktop (Fedora, most modern distros) the real default sink is managed by PipeWire/WirePlumber and can point somewhere else entirely (e.g. laptop speakers). `aplay` will report success and exit 0 while silently playing into a disconnected/wrong device. `pw-play` routes through PipeWire's actual default sink, matching whatever output the desktop volume control shows as active. Check `wpctl status` to see the current default sink if debugging silent playback.
 
 ## 1. Install Piper
 
@@ -36,7 +38,7 @@ Save as `~/.claude/scripts/tts-speak.sh` and `chmod +x` it. Claude Code runs thi
 - reads `transcript_path` from the hook's stdin JSON payload
 - pulls out all `text` blocks from the assistant's messages since the last user message (a single reply can span several JSONL lines when tool calls are interleaved)
 - strips markdown (fenced code blocks, inline code, bold/italic, headers, links) — reading raw code aloud is bad UX
-- pipes the cleaned text through Piper, then plays the WAV through `aplay`
+- pipes the cleaned text through Piper, then plays the WAV through `pw-play` (see the `pw-play` vs `aplay` note above)
 
 ```bash
 #!/usr/bin/env bash
@@ -74,10 +76,12 @@ clean=$(printf '%s' "$text" \
 
 [ -n "$clean" ] || exit 0
 
-printf '%s' "$clean" | python3 -m piper -m "$VOICE" --output_file - 2>/dev/null | aplay -q - 2>/dev/null
+printf '%s' "$clean" | python3 -m piper -m "$VOICE" --output_file - 2>/dev/null | pw-play - 2>/dev/null
 ```
 
-**Note:** the `jq -rs` (raw output, `-r`) flag is required — without it, jq returns a JSON-encoded string (literal quotes and `\n` escapes) instead of plain text.
+**Notes:**
+- the `jq -rs` (raw output, `-r`) flag is required — without it, jq returns a JSON-encoded string (literal quotes and `\n` escapes) instead of plain text.
+- `pw-play -` reads the WAV from stdin, same as `aplay -`.
 
 ### Self-check (optional but recommended)
 
